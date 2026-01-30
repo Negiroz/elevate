@@ -1,0 +1,8 @@
+{
+  "name": "Elevate - Church Management System",
+  "description": "A comprehensive church management platform for tracking attendance, discipleship, and congregation growth with AI-powered pastoral insights.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
+}
