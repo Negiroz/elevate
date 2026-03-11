@@ -11,9 +11,9 @@ node_modules
 dist
 dist-ssr
 *.local
-database.sqlite
-*.sqlite-shm
-*.sqlite-wal
+# database.sqlite
+# *.sqlite-shm
+# *.sqlite-wal
 .env
 
 # Editor directories and files
