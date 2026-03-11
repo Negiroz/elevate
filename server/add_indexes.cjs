@@ -45,6 +45,12 @@ db.serialize(() => {
         else console.log('Index added: idx_tasks_assigned');
     });
 
+    // Unique Index for Automation Idempotency
+    db.run("CREATE UNIQUE INDEX IF NOT EXISTS idx_tasks_automation_unique ON tasks(category, related_member_id, assigned_to_id, due_date) WHERE category = 'automation'", (err) => {
+        if (err) console.error('Error adding idx_tasks_automation_unique:', err);
+        else console.log('Index added: idx_tasks_automation_unique');
+    });
+
 });
 
 db.close((err) => {

@@ -444,10 +444,14 @@ const MemberFormScreen: React.FC<MemberFormScreenProps> = ({ mode }) => {
                         required={formData.conversionOrigin === 'event'}
                       >
                         <option value="">-- Seleccionar Evento --</option>
-                        {/* Active events first, then inactive but recent - limit to 5 most recent if we want logic, but here assuming events ctx gives all. Let's slice the first 5 active or recent. */}
-                        {events.slice(0, 10).map(e => (
-                          <option key={e.id} value={e.id}>{e.name} ({new Date(e.date + 'T00:00:00').toLocaleDateString()})</option>
-                        ))}
+                        {/* Active events first, then others. Showing ALL relevant events instead of slicing to 10. */}
+                        {events
+                          .filter(e => e.active || e.id === formData.conversionEventId) // Show active or currently selected
+                          .map(e => (
+                            <option key={e.id} value={e.id}>
+                              {e.name} ({new Date(e.date + 'T00:00:00').toLocaleDateString()}) {!e.active ? '(Inactivo)' : ''}
+                            </option>
+                          ))}
                       </select>
                     </div>
                   )}

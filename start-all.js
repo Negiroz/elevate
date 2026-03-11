@@ -1,6 +1,15 @@
 import { spawn } from 'child_process';
 import path from 'path';
 
+// Ensure port is free before starting
+import { execSync } from 'child_process';
+try {
+    execSync('node server/ensure_port.js', { stdio: 'inherit' });
+} catch (e) {
+    // Ignore error if it fails, try to start anyway
+    console.log('Port check finished');
+}
+
 const server = spawn('node', ['server/index.js'], {
     stdio: 'inherit',
     shell: true

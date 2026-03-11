@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { api } from './lib/api';
 import { useNotification } from './NotificationContext';
+import { useUsers } from './UserContext';
 
 export interface Announcement {
     id: string;
@@ -27,14 +28,22 @@ export const AnnouncementProvider: React.FC<{ children: ReactNode }> = ({ childr
     const [announcements, setAnnouncements] = useState<Announcement[]>([]);
     const [loading, setLoading] = useState(true);
     const { showNotification } = useNotification();
+    const { user } = useUsers();
 
     const refreshAnnouncements = async () => {
+
         setLoading(true);
         try {
             const data = await api.get('/announcements');
-            setAnnouncements(data);
+            if (Array.isArray(data)) {
+                setAnnouncements(data);
+            } else {
+                console.warn('API returned non-array for announcements:', data);
+                setAnnouncements([]);
+            }
         } catch (error) {
             console.error('Error fetching announcements:', error);
+            setAnnouncements([]); // Fallback to empty array on error
         } finally {
             setLoading(false);
         }
@@ -42,14 +51,14 @@ export const AnnouncementProvider: React.FC<{ children: ReactNode }> = ({ childr
 
     useEffect(() => {
         const session = localStorage.getItem('session');
-        if (session) {
+        if (session || user) {
             refreshAnnouncements();
         } else {
             setLoading(false);
         }
-    }, []);
+    }, [user]); // Re-fetch when user changes (login)
 
-    const activeAnnouncements = announcements.filter(a => a.active);
+    const activeAnnouncements = Array.isArray(announcements) ? announcements.filter(a => a && a.active) : [];
 
     const addAnnouncement = async (data: Partial<Announcement>) => {
         try {

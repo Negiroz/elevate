@@ -189,6 +189,34 @@ function initDb() {
             created_by_user_id TEXT
         )`);
 
+        // 9. INDEXES (Performance Optimization)
+        // Profiles
+        db.run("CREATE INDEX IF NOT EXISTS idx_profiles_district_id ON profiles(district_id)");
+        db.run("CREATE INDEX IF NOT EXISTS idx_profiles_cell_id ON profiles(cell_id)");
+        db.run("CREATE INDEX IF NOT EXISTS idx_profiles_role ON profiles(role)");
+        db.run("CREATE INDEX IF NOT EXISTS idx_profiles_active ON profiles(active)");
+
+        // Cells
+        db.run("CREATE INDEX IF NOT EXISTS idx_cells_district_id ON cells(district_id)");
+        db.run("CREATE INDEX IF NOT EXISTS idx_cells_leader_id ON cells(leader_id)");
+
+        // Tasks
+        db.run("CREATE INDEX IF NOT EXISTS idx_tasks_assigned_to ON tasks(assigned_to_id)");
+        db.run("CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status)");
+
+        // Consolidation Steps
+        db.run("CREATE INDEX IF NOT EXISTS idx_consolidation_steps_profile_id ON consolidation_steps(profile_id)");
+
+        // Dashboard Optimization
+        db.run("CREATE INDEX IF NOT EXISTS idx_profiles_birth_date ON profiles(birth_date)");
+
+
+
+        // Dashboard Optimization (Attendance)
+        db.run("CREATE INDEX IF NOT EXISTS idx_cell_attendance_date ON cell_attendance(date)");
+        db.run("CREATE INDEX IF NOT EXISTS idx_cell_attendance_member_id ON cell_attendance(member_id)");
+        db.run("CREATE INDEX IF NOT EXISTS idx_cell_attendance_cell_id ON cell_attendance(cell_id)");
+
         // Seed Data if Empty
         checkAndSeed();
     });

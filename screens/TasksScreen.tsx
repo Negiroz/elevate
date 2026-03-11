@@ -5,15 +5,19 @@ import { useTasks } from '../TaskContext';
 import { useUsers } from '../UserContext';
 import { TaskStatus, TaskPriority, TaskCategory, UserRole, Task } from '../types';
 import TaskDetailModal from '../components/TaskDetailModal';
+import { useDistricts } from '../DistrictContext';
+import { useCells } from '../CellContext';
 
 const TasksScreen: React.FC = () => {
   const { tasks, addTask, updateTaskStatus, deleteTask, getOverdueReportsCount, resolveTask } = useTasks();
   const { users, user } = useUsers();
+  const { districts } = useDistricts();
+  const { cells } = useCells();
 
   const currentUserId = user?.id || '';
   const currentUser = users.find(u => u.id === currentUserId) || (user || { id: '', role: UserRole.VISITOR, firstName: '', lastName: '', email: '', active: false, joinDate: '' });
 
-  const [filter, setFilter] = useState<'all' | 'pending' | 'completed'>('all');
+  const [filter, setFilter] = useState<'all' | 'pending' | 'completed'>('pending');
   const [showForm, setShowForm] = useState(false);
   const [criticalFilter, setCriticalFilter] = useState(false);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
@@ -98,14 +102,22 @@ const TasksScreen: React.FC = () => {
     }
   };
 
-  const getCategoryIcon = (c: TaskCategory) => {
-    switch (c) {
-      case 'cell-report': return 'analytics';
-      case 'visit': return 'hail';
-      case 'study': return 'menu_book';
-      case 'pastoral': return 'church';
-      case 'automation': return 'smart_toy';
-      default: return 'person';
+  const getTaskVisuals = (task: Task) => {
+    const title = task.title.toLowerCase();
+
+    if (task.category === 'automation' || task.category === 'personal' || task.category === 'pastoral') {
+      if (title.includes('cumpleaños')) return { icon: 'cake', color: 'text-pink-400 bg-pink-400/10', label: 'Cumpleaños' };
+      if (title.includes('visita')) return { icon: 'hail', color: 'text-blue-400 bg-blue-400/10', label: 'Visita' };
+      if (title.includes('atención pastoral')) return { icon: 'church', color: 'text-purple-400 bg-purple-400/10', label: 'Pastoral' };
+    }
+
+    switch (task.category) {
+      case 'cell-report': return { icon: 'analytics', color: 'text-amber-400 bg-amber-400/10', label: 'Reporte' };
+      case 'visit': return { icon: 'hail', color: 'text-blue-400 bg-blue-400/10', label: 'Visita' };
+      case 'study': return { icon: 'menu_book', color: 'text-cyan-400 bg-cyan-400/10', label: 'Estudio' };
+      case 'pastoral': return { icon: 'church', color: 'text-purple-400 bg-purple-400/10', label: 'Pastoral' };
+      case 'automation': return { icon: 'smart_toy', color: 'text-indigo-400 bg-indigo-400/10', label: 'Auto' };
+      default: return { icon: 'person', color: 'text-slate-400 bg-slate-400/10', label: 'Tarea' };
     }
   };
 
@@ -228,58 +240,111 @@ const TasksScreen: React.FC = () => {
               <p className="font-bold text-sm text-center">Asignar Nueva Tarea</p>
             </button>
           )}
-
-          {filteredTasks.map((task) => (
-            <div
-              key={task.id}
-              onClick={() => setSelectedTaskId(task.id)}
-              className={`bg-surface-dark p-6 rounded-2xl border border-border-dark shadow-lg group cursor-pointer hover:border-primary/40 transition-all ${task.status === 'completed' ? 'opacity-50' : ''}`}
-            >
-              <div className="flex justify-between items-start mb-4">
-                <div className={`text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded flex items-center gap-1 ${getPriorityColor(task.priority)}`}>
-                  <span className="material-symbols-outlined text-[12px]">{getCategoryIcon(task.category)}</span>
-                  {task.category === 'automation' ? 'Automatizada' : task.priority}
-                </div>
-                {task.createdByUserId === currentUserId && (
-                  <button
-                    onClick={(e) => { e.stopPropagation(); deleteTask(task.id); }}
-                    className="opacity-0 group-hover:opacity-100 text-text-secondary hover:text-red-500 transition-all p-1"
-                  >
-                    <span className="material-symbols-outlined text-[18px]">delete</span>
-                  </button>
-                )}
-              </div>
-
-              <h4 className={`text-white font-black text-lg mb-1 ${task.status === 'completed' ? 'line-through opacity-50' : ''}`}>{task.title}</h4>
-              <p className="text-text-secondary text-[11px] mb-4 line-clamp-2">{task.description}</p>
-
-              <div className="space-y-2 mb-6">
-                <div className="flex items-center gap-2 text-[10px]">
-                  <span className="text-text-secondary font-bold uppercase">Asignada a:</span>
-                  <span className="text-primary font-bold">{getUserName(task.assignedToId)}</span>
-                </div>
-              </div>
-
-              <div className="flex items-center justify-between pt-4 border-t border-border-dark/30">
-                <div className="text-[10px] text-text-secondary flex items-center gap-1">
-                  <span className="material-symbols-outlined text-[14px]">event</span>
-                  {formatDate(task.dueDate)}
+          {filteredTasks.map((task) => {
+            const visuals = getTaskVisuals(task);
+            return (
+              <div
+                key={task.id}
+                onClick={() => setSelectedTaskId(task.id)}
+                className={`bg-surface-dark p-6 rounded-2xl border border-border-dark shadow-lg group cursor-pointer hover:border-primary/40 transition-all ${task.status === 'completed' ? 'opacity-50' : ''}`}
+              >
+                <div className="flex justify-between items-start mb-4">
+                  <div className={`text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded flex items-center gap-1 ${visuals.color}`}>
+                    <span className="material-symbols-outlined text-[12px]">{visuals.icon}</span>
+                    {visuals.label}
+                  </div>
+                  {task.createdByUserId === currentUserId && (
+                    <button
+                      onClick={(e) => { e.stopPropagation(); deleteTask(task.id); }}
+                      className="opacity-0 group-hover:opacity-100 text-text-secondary hover:text-red-500 transition-all p-1"
+                    >
+                      <span className="material-symbols-outlined text-[18px]">delete</span>
+                    </button>
+                  )}
                 </div>
 
-                {task.assignedToId === currentUserId && (
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      updateTaskStatus(task.id, task.status === 'completed' ? 'pending' : 'completed');
-                    }}
-                    className={`text-[10px] font-bold px-3 py-1 rounded transition-all ${task.status === 'completed' ? 'bg-orange-500/10 text-orange-400' : 'bg-primary text-white shadow-lg'}`}
-                  >
-                    {task.status === 'completed' ? 'Reabrir' : 'Completar'}
-                  </button>
-                )}
+                <h4 className={`text-white font-black text-lg mb-1 ${task.status === 'completed' ? 'line-through opacity-50' : ''}`}>{task.title}</h4>
+                <p className="text-text-secondary text-[11px] mb-4 line-clamp-2">{task.description}</p>
+
+                <div className="space-y-2 mb-6">
+                  <div className="flex items-center gap-2 text-[10px]">
+                    <span className="text-text-secondary font-bold uppercase">Asignada a:</span>
+                    <span className="text-primary font-bold">{getUserName(task.assignedToId)}</span>
+                  </div>
+
+                  {/* Automation/Birthday Extra Info */}
+                  {task.relatedMemberId && (() => {
+                    const relatedMember = users.find(u => u.id === task.relatedMemberId);
+                    if (relatedMember) {
+                      const memberDistrict = districts.find(d => d.id === relatedMember.districtId);
+                      const memberCell = cells.find(c => c.id === relatedMember.cellId);
+                      const memberCellLeader = users.find(u => u.id === memberCell?.leaderId);
+                      const memberDistrictSupervisor = users.find(u => u.id === memberDistrict?.supervisorId);
+
+                      const isSupervisorOrAbove = [UserRole.DISTRICT_SUPERVISOR, UserRole.PASTOR, UserRole.ASSOCIATE_PASTOR, UserRole.ADMIN].includes(currentUser.role as UserRole);
+                      const isPastorOrAbove = [UserRole.PASTOR, UserRole.ASSOCIATE_PASTOR, UserRole.ADMIN].includes(currentUser.role as UserRole);
+                      return (
+                        <div className="mt-3 pt-3 border-t border-border-dark/30 flex flex-col gap-1.5">
+                          <div className="flex items-center gap-2 text-[10px]">
+                            <span className="text-text-secondary font-bold uppercase w-14">Rol:</span>
+                            <span className={`px-2 py-0.5 rounded text-[9px] font-black uppercase ${relatedMember.role === UserRole.PASTOR ? 'bg-purple-500/10 text-purple-400' :
+                              relatedMember.role === UserRole.LEADER ? 'bg-blue-500/10 text-blue-400' :
+                                relatedMember.role === UserRole.TIMOTEO ? 'bg-cyan-500/10 text-cyan-400 border border-cyan-500/20' :
+                                  'bg-slate-500/10 text-slate-400'
+                              }`}>{relatedMember.role}</span>
+                          </div>
+                          <div className="flex items-center gap-2 text-[10px]">
+                            <span className="text-text-secondary font-bold uppercase w-14">Distrito:</span>
+                            <span className="text-emerald-400 font-bold">{memberDistrict?.name || 'Sin Distrito'}</span>
+                          </div>
+                          {isPastorOrAbove && memberDistrictSupervisor && (
+                            <div className="flex items-center gap-2 text-[10px]">
+                              <span className="text-text-secondary font-bold uppercase w-14">Sup:</span>
+                              <span className="text-orange-400 font-bold">{memberDistrictSupervisor.firstName} {memberDistrictSupervisor.lastName}</span>
+                            </div>
+                          )}
+                          {isSupervisorOrAbove && (
+                            <>
+                              <div className="flex items-center gap-2 text-[10px]">
+                                <span className="text-text-secondary font-bold uppercase w-14">Célula:</span>
+                                <span className="text-blue-400 font-bold">{memberCell?.name || 'Sin Célula'}</span>
+                              </div>
+                              {memberCellLeader && (
+                                <div className="flex items-center gap-2 text-[10px]">
+                                  <span className="text-text-secondary font-bold uppercase w-14">Líder:</span>
+                                  <span className="text-cyan-400 font-bold">{memberCellLeader.firstName} {memberCellLeader.lastName}</span>
+                                </div>
+                              )}
+                            </>
+                          )}
+                        </div>
+                      );
+                    }
+                    return null;
+                  })()}
+                </div>
+
+                <div className="flex items-center justify-between pt-4 border-t border-border-dark/30">
+                  <div className="text-[10px] text-text-secondary flex items-center gap-1">
+                    <span className="material-symbols-outlined text-[14px]">event</span>
+                    {formatDate(task.dueDate)}
+                  </div>
+
+                  {task.assignedToId === currentUserId && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        updateTaskStatus(task.id, task.status === 'completed' ? 'pending' : 'completed');
+                      }}
+                      className={`text-[10px] font-bold px-3 py-1 rounded transition-all ${task.status === 'completed' ? 'bg-orange-500/10 text-orange-400' : 'bg-primary text-white shadow-lg'}`}
+                    >
+                      {task.status === 'completed' ? 'Reabrir' : 'Completar'}
+                    </button>
+                  )}
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </div>
 

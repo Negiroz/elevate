@@ -41,6 +41,7 @@ export interface District {
   cellCount: number;
   active: boolean;
   color?: string;
+  supervisorName?: string;
 }
 
 export interface Cell {
@@ -51,6 +52,7 @@ export interface Cell {
   memberCount: number;
   imageUrl?: string;
   meetingDay?: string;
+  leaderName?: string;
 }
 
 export interface Stage {

@@ -29,7 +29,7 @@ export const DistrictProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
   const fetchDistricts = async () => {
     try {
-      const data = await api.get('/districts');
+      const data = await api.get(`/districts?t=${Date.now()}`);
       setDistricts(data.map(mapDbToDistrict));
     } catch (error) {
       console.error('Error fetching districts:', error);
@@ -44,7 +44,8 @@ export const DistrictProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     supervisorId: data.supervisor_id || '',
     cellCount: data.cells?.[0]?.count || 0,
     active: data.active === 1 || data.active === true,
-    color: data.color || '#3B82F6'
+    color: data.color || '#3B82F6',
+    supervisorName: data.supervisor_first_name ? `${data.supervisor_first_name} ${data.supervisor_last_name}`.trim() : 'Sin supervisor'
   });
 
   const addDistrict = async (data: Omit<District, 'id' | 'cellCount'>) => {

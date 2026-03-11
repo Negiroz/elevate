@@ -74,12 +74,14 @@ router.post('/login', async (req, res) => {
             });
         }
 
+        if (!user.password_hash) return res.status(400).json({ error: 'Invalid password (no hash)' });
         const valid = await bcrypt.compare(password, user.password_hash);
         if (!valid) return res.status(400).json({ error: 'Invalid password' });
 
         const token = jwt.sign({ id: user.id, email: user.email, role: user.role }, SECRET, { expiresIn: '24h' });
         res.json({ session: { access_token: token, user: { id: user.id, email: user.email, role: user.role } } });
     } catch (err) {
+        console.error("LOGIN ERROR:", err);
         res.status(500).json({ error: err.message });
     }
 });
@@ -204,123 +206,144 @@ router.get('/stats/dashboard', auth, async (req, res) => {
             params.push(req.user.id);
         }
 
-        // Queries
-        const activeCount = await get(`SELECT count(*) as count FROM profiles WHERE ${whereClause} AND active = 1`, params);
-        const inactiveCount = await get(`SELECT count(*) as count FROM profiles WHERE ${whereClause} AND active = 0`, params);
-        const totalCells = await get(`SELECT count(*) as count FROM cells WHERE 1=1`); // Simplified cells for now or filter by district if supervisor
-        // Note: For cells, scope filtering logic is slightly different (leaders don't see all cells, supervisors see strict district cells)
-        // Let's refine cell count if needed, but totalCells usually means "in my scope".
+        // 1. COMBINED AGGREGATED COUNTS (Scalar values) to reduce round-trips
+        // We use subqueries to get all simple counts in one go
+        const combinedCounts = await get(`
+            SELECT 
+                (SELECT count(*) FROM profiles WHERE ${whereClause} AND active = 1) as activeCount,
+                (SELECT count(*) FROM profiles WHERE ${whereClause} AND active = 0) as inactiveCount,
+                (SELECT count(*) FROM profiles WHERE ${whereClause} AND role = 'Timoteo') as timoteoCount
+        `, params);
 
+        // Cell Count (My Scope)
         let cellSql = 'SELECT count(*) as count FROM cells WHERE 1=1';
         let cellParams = [];
         if (access.scope === 'supervisor') {
             const placeholders = access.districtIds.map(() => '?').join(',');
             cellSql += ` AND district_id IN (${placeholders})`;
             cellParams.push(...access.districtIds);
+        } else if (access.scope === 'leader') {
+            // For cell count in dashboard, usually we show total cells under my purview. 
+            // If leader, it's just 1 (their cell) or 0.
+            const placeholders = access.cellIds.map(() => '?').join(',');
+            if (access.cellIds.length > 0) {
+                cellSql += ` AND id IN (${placeholders})`;
+                cellParams.push(...access.cellIds);
+            } else {
+                cellSql += ' AND 1=0';
+            }
         }
-        const myCellsCount = await get(cellSql, cellParams);
 
-        const timoteoCount = await get(`SELECT count(*) as count FROM profiles WHERE ${whereClause} AND role = 'Timoteo'`, params);
+        // 2. PARALLEL EXECUTION OF HEAVY/INDEPENDENT QUERIES
+        const [
+            myCellsCount,
+            cellsToMultiplyList,
+            taskCounts,
+            ageStats,
+            ageDist,
+            timoteosByCellList,
+            genderData,
+            districtData
+        ] = await Promise.all([
+            get(cellSql, cellParams), // 1. Cell Count
 
-        // Cells with > 16 members (To multiply)
-        // Complex query: Join profiles and count group by cell
-        // SELECT count(*) FROM (SELECT cell_id, count(*) as c FROM profiles WHERE active=1 GROUP BY cell_id HAVING c > 16)
-        // Applying scope...
-        // Filter profiles by scope first? Yes.
-        const cellsToMultiplyList = await query(`
-            SELECT 
-                cell_id as id,
-                (SELECT name FROM cells WHERE id = profiles.cell_id) as name,
-                (SELECT leader_id FROM cells WHERE id = profiles.cell_id) as leaderId,
-                count(*) as activeMembers
-            FROM profiles
-            WHERE ${whereClause} AND active = 1 AND cell_id IS NOT NULL AND cell_id != ''
-            GROUP BY cell_id
-            HAVING SUM(CASE WHEN birth_date IS NOT NULL AND date(birth_date, '+18 years') <= date('now') THEN 1 ELSE 0 END) > 16
-        `, params);
+            // 2. Cells to Multiply List (Optimized)
+            // Uses efficient date comparison instead of string manipulation
+            query(`
+                SELECT 
+                    cell_id as id,
+                    (SELECT name FROM cells WHERE id = profiles.cell_id) as name,
+                    (SELECT leader_id FROM cells WHERE id = profiles.cell_id) as leaderId,
+                    count(*) as activeMembers
+                FROM profiles
+                WHERE ${whereClause} AND active = 1 AND cell_id IS NOT NULL AND cell_id != ''
+                GROUP BY cell_id
+                HAVING SUM(CASE WHEN birth_date IS NOT NULL AND birth_date <= date('now', '-18 years') THEN 1 ELSE 0 END) > 16
+            `, params),
 
-        // Pending Tasks
-        // Tasks have their own scoping usually (assigned_to or related_member)
-        // Simplified for this endpoint: Tasks assigned to ME or my scope
-        // Let's rely on standard task fetching or simple count for current user
-        const pendingTasks = await get(`SELECT count(*) as count FROM tasks WHERE assigned_to_id = ? AND status = 'pending'`, [req.user.id]);
-        const overdueTasks = await get(`SELECT count(*) as count FROM tasks WHERE assigned_to_id = ? AND status = 'pending' AND due_date < date('now')`, [req.user.id]);
+            // 3. Task Counts (Pending & Overdue)
+            get(`
+                SELECT 
+                    (SELECT count(*) FROM tasks WHERE assigned_to_id = ? AND status = 'pending') as pending,
+                    (SELECT count(*) FROM tasks WHERE assigned_to_id = ? AND status = 'pending' AND due_date < date('now')) as overdue
+            `, [req.user.id, req.user.id]),
 
-        // Church Age Average
-        const ageStats = await get(`SELECT AVG((strftime('%Y', 'now') - strftime('%Y', birth_date))) as average FROM profiles WHERE ${whereClause} AND birth_date IS NOT NULL AND birth_date != ''`, params);
+            // 4. Age Average
+            get(`SELECT AVG((strftime('%Y', 'now') - strftime('%Y', birth_date))) as average FROM profiles WHERE ${whereClause} AND birth_date IS NOT NULL AND birth_date != ''`, params),
 
-        // Age Distribution
-        const ageDist = await query(`
-            SELECT 
-                CASE 
-                    WHEN (strftime('%Y', 'now') - strftime('%Y', birth_date)) BETWEEN 0 AND 9 THEN '0-9'
-                    WHEN (strftime('%Y', 'now') - strftime('%Y', birth_date)) BETWEEN 10 AND 19 THEN '10-19'
-                    WHEN (strftime('%Y', 'now') - strftime('%Y', birth_date)) BETWEEN 20 AND 29 THEN '20-29'
-                    WHEN (strftime('%Y', 'now') - strftime('%Y', birth_date)) BETWEEN 30 AND 39 THEN '30-39'
-                    WHEN (strftime('%Y', 'now') - strftime('%Y', birth_date)) BETWEEN 40 AND 49 THEN '40-49'
-                    WHEN (strftime('%Y', 'now') - strftime('%Y', birth_date)) BETWEEN 50 AND 59 THEN '50-59'
-                    WHEN (strftime('%Y', 'now') - strftime('%Y', birth_date)) BETWEEN 60 AND 69 THEN '60-69'
-                    WHEN (strftime('%Y', 'now') - strftime('%Y', birth_date)) BETWEEN 70 AND 79 THEN '70-79'
-                    ELSE '80+' 
-                END as range,
-                COUNT(*) as count
-            FROM profiles
-            WHERE ${whereClause} AND birth_date IS NOT NULL AND birth_date != ''
-            GROUP BY range
-        `, params);
+            // 5. Age Distribution (Optimized)
+            // Uses simple CASE WHEN on date ranges which hits the index better than computing age for every row
+            query(`
+                SELECT 
+                    CASE 
+                        WHEN birth_date > date('now', '-10 years') THEN '0-9'
+                        WHEN birth_date <= date('now', '-10 years') AND birth_date > date('now', '-20 years') THEN '10-19'
+                        WHEN birth_date <= date('now', '-20 years') AND birth_date > date('now', '-30 years') THEN '20-29'
+                        WHEN birth_date <= date('now', '-30 years') AND birth_date > date('now', '-40 years') THEN '30-39'
+                        WHEN birth_date <= date('now', '-40 years') AND birth_date > date('now', '-50 years') THEN '40-49'
+                        WHEN birth_date <= date('now', '-50 years') AND birth_date > date('now', '-60 years') THEN '50-59'
+                        WHEN birth_date <= date('now', '-60 years') AND birth_date > date('now', '-70 years') THEN '60-69'
+                        WHEN birth_date <= date('now', '-70 years') AND birth_date > date('now', '-80 years') THEN '70-79'
+                        ELSE '80+' 
+                    END as range,
+                    COUNT(*) as count
+                FROM profiles
+                WHERE ${whereClause} AND birth_date IS NOT NULL AND birth_date != ''
+                GROUP BY range
+            `, params),
 
-        // Timoteos by Cell
-        const timoteosByCellList = await query(`
-            SELECT 
-                (SELECT name FROM cells WHERE id = profiles.cell_id) as cellName,
-                (SELECT first_name || ' ' || last_name FROM profiles p2 WHERE p2.id = (SELECT leader_id FROM cells WHERE id = profiles.cell_id)) as leaderName,
-                count(*) as count
-            FROM profiles
-            WHERE ${whereClause} AND role = 'Timoteo' AND active = 1 AND cell_id IS NOT NULL
-            GROUP BY cell_id
-            ORDER BY count DESC
-        `, params);
+            // 6. Timoteos By Cell
+            query(`
+                SELECT 
+                    (SELECT name FROM cells WHERE id = profiles.cell_id) as cellName,
+                    (SELECT first_name || ' ' || last_name FROM profiles p2 WHERE p2.id = (SELECT leader_id FROM cells WHERE id = profiles.cell_id)) as leaderName,
+                    count(*) as count
+                FROM profiles
+                WHERE ${whereClause} AND role = 'Timoteo' AND active = 1 AND cell_id IS NOT NULL
+                GROUP BY cell_id
+                ORDER BY count DESC
+            `, params),
 
-        // Gender Stats
-        const genderData = await query(`
-            SELECT gender, count(*) as count 
-            FROM profiles 
-            WHERE ${whereClause} AND active = 1 AND gender IS NOT NULL 
-            GROUP BY gender
-        `, params);
+            // 7. Gender Stats
+            query(`
+                SELECT gender, count(*) as count 
+                FROM profiles 
+                WHERE ${whereClause} AND active = 1 AND gender IS NOT NULL 
+                GROUP BY gender
+            `, params),
+
+            // 8. District Stats
+            query(`
+                SELECT 
+                    d.name as name, 
+                    d.color as color,
+                    count(p.id) as count 
+                FROM profiles p
+                LEFT JOIN districts d ON p.district_id = d.id
+                WHERE ${whereClause} AND p.active = 1 AND p.district_id IS NOT NULL
+                GROUP BY p.district_id
+                ORDER BY count DESC
+            `, params)
+        ]);
 
         const genderStats = [
             { name: 'Hombres', value: genderData.find(g => g.gender === 'Masculino')?.count || 0, color: '#3b82f6' },
             { name: 'Mujeres', value: genderData.find(g => g.gender === 'Femenino')?.count || 0, color: '#ec4899' }
         ];
 
-        // District Stats (Members per District)
-        // Group profiles by district to see distribution
-        const districtData = await query(`
-            SELECT 
-                d.name as name, 
-                d.color as color,
-                count(p.id) as count 
-            FROM profiles p
-            LEFT JOIN districts d ON p.district_id = d.id
-            WHERE ${whereClause} AND p.active = 1 AND p.district_id IS NOT NULL
-            GROUP BY p.district_id
-            ORDER BY count DESC
-        `, params);
-
         res.json({
-            activeCount: activeCount.count,
-            inactiveCount: inactiveCount.count,
+            activeCount: combinedCounts.activeCount,
+            inactiveCount: combinedCounts.inactiveCount,
             totalCells: myCellsCount.count,
             cellsToMultiplyCount: cellsToMultiplyList.length,
             cellsToMultiplyList: cellsToMultiplyList,
-            timoteoCount: timoteoCount.count,
+            timoteoCount: combinedCounts.timoteoCount,
             timoteosByCell: timoteosByCellList,
             genderStats: genderStats,
             districtStats: districtData.map(d => ({ name: d.name || 'Sin Distrito', value: d.count, color: d.color || '#ec4899' })),
             taskControl: {
-                pending: pendingTasks.count,
-                overdue: overdueTasks.count
+                pending: taskCounts.pending,
+                overdue: taskCounts.overdue
             },
             churchAge: {
                 average: Math.round(ageStats.average || 0),
@@ -338,9 +361,8 @@ router.get('/stats/dashboard', auth, async (req, res) => {
 router.get('/profiles', auth, async (req, res) => {
     try {
         const access = await getAccessScope(req.user.id, req.user.role);
-        const { page, limit, q, district, cell } = req.query;
-        console.log('[DEBUG-PROFILES] Query Params:', { page, limit, q, district, cell });
-        console.log('[DEBUG-PROFILES] Access Scope:', access);
+        const { page, limit, q, district, cell, include_stats, consolidation_only } = req.query;
+        // console.log('[DEBUG-PROFILES] Query Params:', { page, limit, q, district, cell });
 
         const isPagination = page !== undefined && limit !== undefined;
         const offset = isPagination ? (parseInt(page) - 1) * parseInt(limit) : 0;
@@ -371,6 +393,11 @@ router.get('/profiles', auth, async (req, res) => {
             params.push(req.user.id);
         }
 
+        // Consolidation Filter (Server-side optimization)
+        if (consolidation_only === 'true') {
+            whereClause += ' AND p.consolidation_stage_id IS NOT NULL AND p.consolidation_stage_id != ""';
+        }
+
         // Optional User Filters (District/Cell)
         if (district && district !== 'Todos') {
             whereClause += ' AND p.district_id = ?';
@@ -395,14 +422,18 @@ router.get('/profiles', auth, async (req, res) => {
             const countRes = await get(`SELECT count(*) as count FROM profiles p WHERE ${whereClause}`, params);
             total = countRes.count;
         }
-        console.log('[DEBUG-PROFILES] WhereClause:', whereClause);
-        console.log('[DEBUG-PROFILES] Params:', params);
 
+        // Optimized Query with JOINs for Stats instead of subqueries or loops
+        // This brings everything in one go.
         let sql = `
-            SELECT p.*
+            SELECT p.*,
+                COUNT(s.id) as total_steps,
+                SUM(CASE WHEN s.completed = 1 THEN 1 ELSE 0 END) as completed_steps
             FROM profiles p
+            LEFT JOIN consolidation_steps s ON p.id = s.profile_id
             WHERE ${whereClause}
-            ORDER BY first_name
+            GROUP BY p.id
+            ORDER BY p.first_name
         `;
 
         if (isPagination) {
@@ -412,6 +443,19 @@ router.get('/profiles', auth, async (req, res) => {
 
         const users = await query(sql, params);
         users.forEach(u => delete u.password_hash);
+
+        // Fix 0 steps: If in consolidation but no steps found (JOIN returned 0), 
+        // we assume template length (13) for UI consistency without writing DB.
+        users.forEach(u => {
+            // ensure numbers
+            u.total_steps = u.total_steps || 0;
+            u.completed_steps = u.completed_steps || 0;
+
+            if (u.consolidation_stage_id && u.active && u.total_steps === 0) {
+                u.total_steps = 13;
+                u.completed_steps = 0;
+            }
+        });
 
         if (isPagination) {
             res.json({
@@ -423,14 +467,10 @@ router.get('/profiles', auth, async (req, res) => {
                     totalPages: Math.ceil(total / parseInt(limit))
                 },
                 debug: {
-                    queryParams: req.query,
-                    accessScope: access,
-                    whereClause,
-                    sqlParams: params
+                    whereClause
                 }
             });
         } else {
-            // Backward compatibility for non-paginated calls (like dropdowns)
             res.json(users);
         }
 
@@ -452,6 +492,7 @@ const CONSOLIDATION_STEPS_TEMPLATE = [
     'Tema 5',
     'Tema 6',
     'Tema 7',
+    'Tema 8',
     'Asistir a célula',
     'Encuentro',
     'Bautizo'
@@ -619,14 +660,23 @@ router.delete('/profiles/:id', auth, async (req, res) => {
 // --- CELLS ---
 router.get('/cells', auth, async (req, res) => {
     try {
+        res.set('Cache-Control', 'no-store');
         const access = await getAccessScope(req.user.id, req.user.role);
-        let sql = 'SELECT * FROM cells WHERE 1=1';
+        let sql = `
+            SELECT c.*, 
+                   p.first_name as leader_first_name, 
+                   p.last_name as leader_last_name,
+                   (SELECT COUNT(*) FROM profiles WHERE cell_id = c.id AND active = 1) as member_count
+            FROM cells c
+            LEFT JOIN profiles p ON c.leader_id = p.id
+            WHERE 1=1
+        `;
         const params = [];
 
         if (access.scope === 'supervisor') {
             if (access.districtIds.length > 0) {
                 const placeholders = access.districtIds.map(() => '?').join(',');
-                sql += ` AND district_id IN (${placeholders})`;
+                sql += ` AND c.district_id IN (${placeholders})`;
                 params.push(...access.districtIds);
             } else {
                 sql += ' AND 1=0';
@@ -634,7 +684,7 @@ router.get('/cells', auth, async (req, res) => {
         } else if (access.scope === 'leader') {
             if (access.cellIds.length > 0) {
                 const placeholders = access.cellIds.map(() => '?').join(',');
-                sql += ` AND id IN (${placeholders})`;
+                sql += ` AND c.id IN (${placeholders})`;
                 params.push(...access.cellIds);
             } else {
                 sql += ' AND 1=0';
@@ -643,14 +693,9 @@ router.get('/cells', auth, async (req, res) => {
             sql += ' AND 1=0';
         }
 
-        sql += ' ORDER BY name';
+        sql += ' ORDER BY c.name';
 
         const cells = await query(sql, params);
-        // Get counts
-        for (const cell of cells) {
-            const row = await get('SELECT count(*) as count FROM profiles WHERE cell_id = ? AND active = 1', [cell.id]);
-            cell.profiles = [{ count: row.count }];
-        }
         res.json(cells);
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -661,7 +706,7 @@ router.get('/cells', auth, async (req, res) => {
 router.post('/cells', auth, async (req, res) => {
     try {
         const { name, leader_id, district_id, image_url, meeting_day } = req.body;
-        const id = uuidv4();
+        const id = req.body.id || uuidv4();
         await run('INSERT INTO cells (id, name, leader_id, district_id, image_url, meeting_day) VALUES (?,?,?,?,?,?)',
             [id, name, leader_id, district_id, image_url, meeting_day]);
 
@@ -670,7 +715,7 @@ router.post('/cells', auth, async (req, res) => {
             await run('UPDATE profiles SET cell_id = ?, district_id = ? WHERE id = ?', [id, district_id, leader_id]);
         }
 
-        res.json({ success: true });
+        res.json({ success: true, id });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
@@ -716,7 +761,13 @@ router.delete('/cells/:id', auth, async (req, res) => {
 // --- DISTRICTS ---
 router.get('/districts', auth, async (req, res) => {
     try {
-        const districts = await query('SELECT * FROM districts ORDER BY name');
+        res.set('Cache-Control', 'no-store');
+        const districts = await query(`
+            SELECT d.*, p.first_name as supervisor_first_name, p.last_name as supervisor_last_name 
+            FROM districts d
+            LEFT JOIN profiles p ON d.supervisor_id = p.id
+            ORDER BY d.name
+        `);
         for (const d of districts) {
             const row = await get('SELECT count(*) as count FROM cells WHERE district_id = ?', [d.id]);
             d.cells = [{ count: row.count }];
@@ -730,10 +781,10 @@ router.get('/districts', auth, async (req, res) => {
 router.post('/districts', auth, async (req, res) => {
     try {
         const { name, supervisor_id, active, color } = req.body;
-        const id = uuidv4();
+        const id = req.body.id || uuidv4();
         await run('INSERT INTO districts (id, name, supervisor_id, active, color) VALUES (?, ?, ?, ?, ?)',
             [id, name, supervisor_id, active, color]);
-        res.json({ success: true });
+        res.json({ success: true, id });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
@@ -796,6 +847,108 @@ router.post('/tasks', auth, async (req, res) => {
         await run(`INSERT INTO tasks (${keys.join(',')}) VALUES (${placeholders})`, vals);
         res.json({ success: true });
     } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// --- AUTOMATIONS ---
+router.post('/tasks/automations/run', auth, async (req, res) => {
+    try {
+        console.log('[AUTOMATION] Running daily birthday check...');
+
+        // 1. Get today's date string (YYYY-MM-DD) for due_date
+        const today = new Date();
+        const mm = String(today.getMonth() + 1).padStart(2, '0');
+        const dd = String(today.getDate()).padStart(2, '0');
+        const todayCommonStr = `${today.getFullYear()}-${mm}-${dd}`; // YYYY-MM-DD for current year
+
+        // 2. Find active users with birthday today
+        // Note: SQLite strftime('%m', birth_date) returns month, etc.
+        const todayBirthdays = await query(`
+            SELECT * FROM profiles 
+            WHERE active = 1 
+            AND birth_date IS NOT NULL 
+            AND strftime('%m', birth_date) = ? 
+            AND strftime('%d', birth_date) = ?
+        `, [mm, dd]);
+
+        console.log(`[AUTOMATION] Found ${todayBirthdays.length} birthdays today.`);
+
+        if (todayBirthdays.length === 0) {
+            return res.json({ success: true, message: 'No birthdays today', createdCount: 0 });
+        }
+
+        // 3. Prepare roles and helpers
+        const cells = await query('SELECT id, leader_id FROM cells');
+        const districts = await query('SELECT id, name, supervisor_id FROM districts');
+        const pastors = await query("SELECT id FROM profiles WHERE role IN ('Pastor', 'Pastor Asociado')");
+
+        const cellsMap = new Map(cells.map(c => [c.id, c.leader_id]));
+        const districtsMap = new Map(districts.map(d => [d.id, d.supervisor_id]));
+        const districtNamesMap = new Map(districts.map(d => [d.id, d.name]));
+        const pastorIds = pastors.map(p => p.id);
+
+        let createdCount = 0;
+
+        // 4. Iterate and create tasks idempotently
+        for (const person of todayBirthdays) {
+            const assignees = new Set();
+
+            // Add Cell Leader
+            if (person.cell_id && cellsMap.has(person.cell_id)) {
+                const leaderId = cellsMap.get(person.cell_id);
+                if (leaderId) assignees.add(leaderId);
+            }
+
+            // Add District Supervisor
+            if (person.district_id && districtsMap.has(person.district_id)) {
+                const supervisorId = districtsMap.get(person.district_id);
+                if (supervisorId) assignees.add(supervisorId);
+            }
+
+            // Add Pastors
+            pastorIds.forEach(id => assignees.add(id));
+
+            // Remove self
+            assignees.delete(person.id);
+
+            const districtName = person.district_id ? (districtNamesMap.get(person.district_id) || 'Sin Distrito') : 'Sin Distrito';
+            const userRole = person.role || 'Miembro';
+
+            const title = `Cumpleaños: ${person.first_name} ${person.last_name} (${userRole})`;
+            const description = `Hoy es el cumpleaños de ${person.first_name} ${person.last_name}.\n\nRol: ${userRole}\nDistrito: ${districtName}\nTeléfono: ${person.phone || 'No registrado'}\n\n¡Llama para felicitarle!`;
+
+            for (const assigneeId of assignees) {
+                // IDEMPOTENCY: Reliance on UNIQUE INDEX (category, related_member_id, assigned_to_id, due_date)
+                // We use INSERT OR IGNORE to prevent duplicates without race conditions.
+
+                const taskId = uuidv4();
+                try {
+                    const result = await run(`
+                        INSERT OR IGNORE INTO tasks (
+                            id, title, description, status, priority, category, 
+                            due_date, assigned_to_id, created_by_user_id, related_member_id, created_at
+                        ) VALUES (?, ?, ?, 'pending', 'high', 'automation', ?, ?, ?, ?, ?)
+                    `, [
+                        taskId, title, description, todayCommonStr,
+                        assigneeId, req.user.id, person.id, new Date().toISOString()
+                    ]);
+
+                    if (result.changes > 0) {
+                        createdCount++;
+                    }
+                } catch (e) {
+                    // Fallback logging if something strictly fails not related to constraint (rare with OR IGNORE)
+                    console.error('[AUTOMATION] Error inserting task:', e);
+                }
+            }
+        }
+
+        console.log(`[AUTOMATION] Created ${createdCount} new birthday tasks.`);
+        res.json({ success: true, createdCount });
+
+    } catch (err) {
+        console.error('[AUTOMATION] Error:', err);
         res.status(500).json({ error: err.message });
     }
 });
@@ -1061,6 +1214,95 @@ router.post('/attendance', auth, async (req, res) => {
             } else {
                 await run('INSERT INTO offering_reports (id, cell_id, date, cash_bs, cash_usd, transfer) VALUES (?, ?, ?, ?, ?, ?)',
                     [uuidv4(), offering.cell_id, offering.date, offering.cash_bs || 0, offering.cash_usd || 0, offering.transfer || 0]);
+            }
+        }
+
+        // --- ATTENDANCE TASK AUTOMATION ---
+        // Trigger logic for consecutive absences
+        for (const item of items) {
+            if (item.status === 'absent') {
+                try {
+                    // 1. Get last 6 attendance records (including the one just inserted/updated)
+                    // We order by date DESC, then created_at DESC to handle same-day entries in tests
+                    const history = await query(`
+                        SELECT status, date FROM cell_attendance 
+                        WHERE member_id = ? 
+                        ORDER BY date DESC, created_at DESC
+                        LIMIT 6
+                    `, [item.member_id]);
+
+                    // 2. Count consecutive absences
+                    let consecutiveAbsences = 0;
+                    for (const record of history) {
+                        if (record.status === 'absent') {
+                            consecutiveAbsences++;
+                        } else {
+                            break;
+                        }
+                    }
+
+                    console.log(`[AUTOMATION] Member ${item.member_id} streak: ${consecutiveAbsences}`);
+
+                    if (consecutiveAbsences >= 3) {
+                        const member = await get('SELECT first_name, last_name, cell_id, district_id FROM profiles WHERE id = ?', [item.member_id]);
+                        if (!member) continue;
+
+                        const today = new Date().toISOString().split('T')[0];
+                        let title = '';
+                        let description = '';
+                        let assigneeId = null;
+                        let priority = 'high';
+                        let categorySuffix = '';
+
+                        if (consecutiveAbsences === 3) {
+                            const cell = await get('SELECT leader_id FROM cells WHERE id = ?', [member.cell_id]);
+                            assigneeId = cell?.leader_id;
+                            title = `Visita de cercanía: ${member.first_name} ${member.last_name}`;
+                            description = `${member.first_name} ha faltado a 3 reuniones consecutivas. Por favor, realiza una visita de cercanía para conocer su estado y motivarle.`;
+                            categorySuffix = 'streak-3';
+                        } else if (consecutiveAbsences === 4) {
+                            const district = await get('SELECT supervisor_id FROM districts WHERE id = ?', [member.district_id]);
+                            assigneeId = district?.supervisor_id;
+                            title = `Visita de supervisor: ${member.first_name} ${member.last_name}`;
+                            description = `${member.first_name} ha alcanzado 4 inasistencias consecutivas. Se requiere una visita de supervisión tras el seguimiento del líder de célula.`;
+                            categorySuffix = 'streak-4';
+                        } else if (consecutiveAbsences >= 5) {
+                            const pastors = await query("SELECT id FROM profiles WHERE role IN ('Pastor', 'Pastor Asociado') LIMIT 1");
+                            assigneeId = pastors[0]?.id;
+                            title = `Atención Pastoral: ${member.first_name} ${member.last_name}`;
+                            description = `ALERTA: ${member.first_name} tiene ${consecutiveAbsences} inasistencias consecutivas. Requiere atención pastoral inmediata para evitar el abandono del proceso.`;
+                            priority = 'urgent';
+                            categorySuffix = 'streak-5'; // Keep suffix consistent for 5+ to avoid duplicate tasks per new absence
+                        }
+
+                        if (assigneeId) {
+                            // IDEMPOTENCY: Check for existing task for THIS streak level category
+                            const existingTask = await get(`
+                                SELECT id FROM tasks 
+                                WHERE related_member_id = ? 
+                                AND category = ? 
+                                AND status != 'cancelled'
+                                AND created_at > date('now', '-30 days')
+                            `, [item.member_id, `automation-${categorySuffix}`]);
+
+                            if (!existingTask) {
+                                await run(`
+                                    INSERT INTO tasks (
+                                        id, title, description, status, priority, category, 
+                                        due_date, assigned_to_id, created_by_user_id, related_member_id, created_at
+                                    ) VALUES (?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?)
+                                `, [
+                                    uuidv4(), title, description, priority,
+                                    `automation-${categorySuffix}`, today, assigneeId,
+                                    req.user.id, item.member_id, new Date().toISOString()
+                                ]);
+                                console.log(`[AUTOMATION] Created ${title} (Level: ${consecutiveAbsences})`);
+                            }
+                        }
+                    }
+                } catch (autoErr) {
+                    console.error('[AUTOMATION] Error in attendance task trigger:', autoErr);
+                }
             }
         }
 

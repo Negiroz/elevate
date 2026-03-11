@@ -30,7 +30,7 @@ class ErrorBoundary extends Component<Props, State> {
     render() {
         if (this.state.hasError) {
             return (
-                <div className="p-8 text-center text-red-500 bg-surface-dark min-h-screen flex flex-col items-center justify-center">
+                <div className="p-8 text-center text-red-500 bg-gray-900 min-h-screen flex flex-col items-center justify-center">
                     <span className="material-symbols-outlined text-6xl mb-4">error</span>
                     <h1 className="text-2xl font-bold text-white mb-2">Algo salió mal</h1>
                     <p className="mb-4">Se ha producido un error al cargar esta pantalla.</p>

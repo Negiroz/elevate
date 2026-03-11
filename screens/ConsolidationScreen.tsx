@@ -48,6 +48,16 @@ const ConsolidationScreen: React.FC = () => {
     taskName: ''
   });
 
+  // User Filter State
+  const [selectedDistrictId, setSelectedDistrictId] = useState<string>('all');
+  const [selectedCellId, setSelectedCellId] = useState<string>('all');
+
+  // Filtered Cells based on District Selection
+  const availableCells = cells.filter(c => {
+    if (selectedDistrictId !== 'all') return c.districtId === selectedDistrictId;
+    return true;
+  });
+
   const getCellAndLeader = (cellId?: string) => {
     if (!cellId) return { cellName: 'Sin Célula', leaderName: 'Sin Líder', leaderImg: null };
     const cell = cells.find(c => c.id === cellId);
@@ -65,17 +75,29 @@ const ConsolidationScreen: React.FC = () => {
     return districts.find(d => d.id === id)?.name || 'Desconocido';
   };
 
-  // RBAC: Filter Tasks for Cell Leaders
+  // RBAC: Filter Tasks for Cell Leaders (and UI filters)
   const isCellLeader = user?.role === UserRole.LEADER;
+  const isSupervisor = user?.role === UserRole.DISTRICT_SUPERVISOR;
 
   const filteredTasks = tasks.filter(t => {
     const matchesSearch = t.name.toLowerCase().includes(searchTerm.toLowerCase());
+
+    // RBAC Enforcements
     if (isCellLeader && user?.cellId) {
       if (t.cellId !== user.cellId) return false;
     }
 
-    if (user?.role === UserRole.DISTRICT_SUPERVISOR && user?.districtId) {
+    if (isSupervisor && user?.districtId) {
       if (t.districtId !== user.districtId) return false;
+    }
+
+    // UI Filters
+    if (selectedDistrictId !== 'all') {
+      if (t.districtId !== selectedDistrictId) return false;
+    }
+
+    if (selectedCellId !== 'all') {
+      if (t.cellId !== selectedCellId) return false;
     }
 
     return matchesSearch;
@@ -261,7 +283,38 @@ const ConsolidationScreen: React.FC = () => {
             <h1 className="text-2xl font-black text-white">Consolidación</h1>
             <p className="text-text-secondary text-sm">Gestiona el progreso y el orden de las etapas de crecimiento.</p>
           </div>
-          <div className="flex gap-2 w-full md:w-auto">
+          <div className="flex flex-wrap md:flex-nowrap gap-2 w-full md:w-auto items-center">
+
+            {/* Filter: District (Only if not restricted) */}
+            {!isCellLeader && (
+              <select
+                value={selectedDistrictId || 'all'}
+                onChange={(e) => {
+                  setSelectedDistrictId(e.target.value);
+                  setSelectedCellId('all'); // Reset cell on district change
+                }}
+                className="bg-surface-dark border border-border-dark text-white text-sm rounded-lg focus:ring-primary focus:border-primary block p-2 md:w-40"
+              >
+                <option value="all">Todos los Distritos</option>
+                {districts.map(d => (
+                  <option key={d.id} value={d.id}>{d.name}</option>
+                ))}
+              </select>
+            )}
+
+            {/* Filter: Cell */}
+            <select
+              value={selectedCellId || 'all'}
+              onChange={(e) => setSelectedCellId(e.target.value)}
+              className="bg-surface-dark border border-border-dark text-white text-sm rounded-lg focus:ring-primary focus:border-primary block p-2 md:w-40"
+              disabled={isCellLeader} // Leaders stuck to their cell
+            >
+              <option value="all">{isCellLeader ? 'Mi Célula' : 'Todas las Células'}</option>
+              {availableCells.map(c => (
+                <option key={c.id} value={c.id}>{c.name}</option>
+              ))}
+            </select>
+
             <div className="relative flex-1 md:w-64">
               <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-text-secondary text-[20px]">search</span>
               <input
@@ -326,7 +379,9 @@ const ConsolidationScreen: React.FC = () => {
                   <div className="p-3 space-y-4 overflow-y-auto flex-1">
                     {stageTasks.map((task) => {
                       const { cellName, leaderName, leaderImg } = getCellAndLeader(task.cellId);
-                      const districtName = getDistrictName(task.districtId);
+                      const district = districts.find(d => d.id === task.districtId);
+                      const districtName = district?.name || 'Sin Distrito';
+                      const districtColor = district?.color || '#94a3b8'; // Default slate-400
 
                       // Filter Checklist Tasks for this member
                       const checklistTasks = globalTasks.filter(gt => gt.relatedMemberId === task.id);
@@ -363,9 +418,10 @@ const ConsolidationScreen: React.FC = () => {
                               <span className="material-symbols-outlined text-[12px]">phone</span>
                               {task.phone || 'Sin teléfono'}
                             </p>
-                            <p className="text-[10px] text-primary flex items-center gap-1">
-                              <span className="material-symbols-outlined text-[12px]">location_on</span>
-                              {districtName} / {cellName}
+                            <p className="text-[10px] text-text-secondary flex items-center gap-1">
+                              <span className="material-symbols-outlined text-[12px] text-primary">location_on</span>
+                              <span style={{ color: districtColor }} className="font-bold">{districtName}</span>
+                              <span className="text-text-secondary">/ {cellName}</span>
                             </p>
                           </div>
 

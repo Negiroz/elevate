@@ -11,7 +11,7 @@ import { UserRole } from '../types';
 const CellListScreen: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
-  const { cells, deleteCell } = useCells();
+  const { cells, loading, deleteCell } = useCells();
   const { districts } = useDistricts();
   const { users, user } = useUsers(); // Get current user
   const { tasks } = useConsolidation();
@@ -88,10 +88,23 @@ const CellListScreen: React.FC = () => {
     }
   };
 
-  const getLeaderName = (leaderId: string) => {
-    const user = users.find(u => u.id === leaderId);
-    return user ? `${user.firstName} ${user.lastName}` : 'Líder no encontrado';
-  };
+  // --- SKELETON COMPONENT ---
+  const CellSkeleton = () => (
+    <div className="bg-surface-dark rounded-2xl overflow-hidden border border-border-dark shadow-xl animate-pulse">
+      <div className="h-40 bg-gray-800"></div>
+      <div className="p-6 space-y-4">
+        <div className="h-6 bg-gray-700 rounded w-3/4"></div>
+        <div className="space-y-2">
+          <div className="h-4 bg-gray-800 rounded w-1/2"></div>
+          <div className="h-4 bg-gray-800 rounded w-1/3"></div>
+        </div>
+        <div className="pt-4 border-t border-border-dark/50 flex justify-between">
+          <div className="h-8 w-20 bg-gray-800 rounded-full"></div>
+          <div className="h-8 w-24 bg-gray-800 rounded-lg"></div>
+        </div>
+      </div>
+    </div>
+  );
 
   return (
     <Layout title="Gestión de Células">
@@ -138,72 +151,78 @@ const CellListScreen: React.FC = () => {
 
         {/* Grid Section */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-          {filteredCells.map((cell) => {
-            const activeCount = getCellMemberCount(cell.id);
-            return (
-              <div
-                key={cell.id}
-                className="bg-surface-dark rounded-2xl overflow-hidden border border-border-dark group shadow-xl hover:-translate-y-1 transition-all"
-              >
-                <div className="h-40 bg-cover bg-center relative" style={{ backgroundImage: `url(${cell.imageUrl})` }}>
-                  <div className="absolute inset-0 bg-gradient-to-t from-surface-dark to-transparent opacity-80"></div>
-                  <div className="absolute top-3 right-3 flex gap-2">
-                    <button
-                      onClick={() => navigate(`/cells/edit/${cell.id}`)}
-                      className="bg-black/50 p-2 rounded-full text-white hover:bg-primary transition-all backdrop-blur-sm shadow-lg"
-                    >
-                      <span className="material-symbols-outlined text-[16px]">edit</span>
-                    </button>
-                    <button
-                      onClick={(e) => handleDelete(e, cell.id)}
-                      className={`p-2 rounded-full text-white transition-all backdrop-blur-sm shadow-lg flex items-center gap-1 ${confirmingId === cell.id ? 'bg-red-600 px-3' : 'bg-black/50 hover:bg-red-500'}`}
-                    >
-                      <span className="material-symbols-outlined text-[16px]">
-                        {confirmingId === cell.id ? 'warning' : 'delete'}
+          {loading ? (
+            // Show 6 skeleton cards while loading
+            [...Array(6)].map((_, i) => <CellSkeleton key={i} />)
+          ) : (
+            filteredCells.map((cell) => {
+
+              const activeCount = getCellMemberCount(cell.id);
+              return (
+                <div
+                  key={cell.id}
+                  className="bg-surface-dark rounded-2xl overflow-hidden border border-border-dark group shadow-xl hover:-translate-y-1 transition-all"
+                >
+                  <div className="h-40 bg-cover bg-center relative" style={{ backgroundImage: `url(${cell.imageUrl})` }}>
+                    <div className="absolute inset-0 bg-gradient-to-t from-surface-dark to-transparent opacity-80"></div>
+                    <div className="absolute top-3 right-3 flex gap-2">
+                      <button
+                        onClick={() => navigate(`/cells/edit/${cell.id}`)}
+                        className="bg-black/50 p-2 rounded-full text-white hover:bg-primary transition-all backdrop-blur-sm shadow-lg"
+                      >
+                        <span className="material-symbols-outlined text-[16px]">edit</span>
+                      </button>
+                      <button
+                        onClick={(e) => handleDelete(e, cell.id)}
+                        className={`p-2 rounded-full text-white transition-all backdrop-blur-sm shadow-lg flex items-center gap-1 ${confirmingId === cell.id ? 'bg-red-600 px-3' : 'bg-black/50 hover:bg-red-500'}`}
+                      >
+                        <span className="material-symbols-outlined text-[16px]">
+                          {confirmingId === cell.id ? 'warning' : 'delete'}
+                        </span>
+                        {confirmingId === cell.id && <span className="text-[10px] font-bold uppercase">Confirmar</span>}
+                      </button>
+                    </div>
+                    <div className="absolute bottom-3 left-4">
+                      <span className="text-[10px] font-bold bg-primary/80 backdrop-blur-sm text-white px-2 py-0.5 rounded uppercase tracking-widest">
+                        {getDistrictName(cell.districtId)}
                       </span>
-                      {confirmingId === cell.id && <span className="text-[10px] font-bold uppercase">Confirmar</span>}
-                    </button>
+                    </div>
                   </div>
-                  <div className="absolute bottom-3 left-4">
-                    <span className="text-[10px] font-bold bg-primary/80 backdrop-blur-sm text-white px-2 py-0.5 rounded uppercase tracking-widest">
-                      {getDistrictName(cell.districtId)}
-                    </span>
+                  <div className="p-6">
+                    <h3 className="text-white font-bold text-xl mb-1">{cell.name}</h3>
+
+                    <div className="space-y-2 mb-6">
+                      <div className="flex items-center gap-2 text-text-secondary text-sm">
+                        <span className="material-symbols-outlined text-[18px]">account_circle</span>
+                        <p>Líder: <span className="text-white font-medium">{cell.leaderName}</span></p>
+                      </div>
+                      <div className="flex items-center gap-2 text-text-secondary text-sm">
+                        <span className="material-symbols-outlined text-[18px]">person_check</span>
+                        <p>Asistentes Activos: <span className="text-white font-medium">{activeCount}</span></p>
+                      </div>
+                    </div>
+
+                    <div className="flex justify-between items-center border-t border-border-dark/50 pt-4 mt-2">
+                      <div className="flex -space-x-2">
+                        {[1, 2, 3].map(i => (
+                          <div key={i} className="w-8 h-8 rounded-full border-2 border-surface-dark bg-slate-700 flex items-center justify-center text-[10px] text-white">
+                            <img src={`https://picsum.photos/seed/m${i + cell.id}/40/40`} className="rounded-full w-full h-full" alt="avatar" />
+                          </div>
+                        ))}
+                        <div className="w-8 h-8 rounded-full border-2 border-surface-dark bg-[#111822] flex items-center justify-center text-[10px] text-text-secondary">+{activeCount > 3 ? activeCount - 3 : 0}</div>
+                      </div>
+                      <button
+                        onClick={() => navigate(`/cells/attendance/${cell.id}`)}
+                        className="text-primary text-sm font-bold hover:bg-primary/10 px-3 py-1.5 rounded-lg transition-all flex items-center gap-1"
+                      >
+                        Asistencia <span className="material-symbols-outlined text-[16px]">how_to_reg</span>
+                      </button>
+                    </div>
                   </div>
                 </div>
-                <div className="p-6">
-                  <h3 className="text-white font-bold text-xl mb-1">{cell.name}</h3>
-
-                  <div className="space-y-2 mb-6">
-                    <div className="flex items-center gap-2 text-text-secondary text-sm">
-                      <span className="material-symbols-outlined text-[18px]">account_circle</span>
-                      <p>Líder: <span className="text-white font-medium">{getLeaderName(cell.leaderId)}</span></p>
-                    </div>
-                    <div className="flex items-center gap-2 text-text-secondary text-sm">
-                      <span className="material-symbols-outlined text-[18px]">person_check</span>
-                      <p>Asistentes Activos: <span className="text-white font-medium">{activeCount}</span></p>
-                    </div>
-                  </div>
-
-                  <div className="flex justify-between items-center border-t border-border-dark/50 pt-4 mt-2">
-                    <div className="flex -space-x-2">
-                      {[1, 2, 3].map(i => (
-                        <div key={i} className="w-8 h-8 rounded-full border-2 border-surface-dark bg-slate-700 flex items-center justify-center text-[10px] text-white">
-                          <img src={`https://picsum.photos/seed/m${i + cell.id}/40/40`} className="rounded-full w-full h-full" alt="avatar" />
-                        </div>
-                      ))}
-                      <div className="w-8 h-8 rounded-full border-2 border-surface-dark bg-[#111822] flex items-center justify-center text-[10px] text-text-secondary">+{activeCount > 3 ? activeCount - 3 : 0}</div>
-                    </div>
-                    <button
-                      onClick={() => navigate(`/cells/attendance/${cell.id}`)}
-                      className="text-primary text-sm font-bold hover:bg-primary/10 px-3 py-1.5 rounded-lg transition-all flex items-center gap-1"
-                    >
-                      Asistencia <span className="material-symbols-outlined text-[16px]">how_to_reg</span>
-                    </button>
-                  </div>
-                </div>
-              </div>
-            );
-          })}
+              );
+            })
+          )}
         </div>
 
         {/* Empty State Section */}

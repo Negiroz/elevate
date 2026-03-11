@@ -29,7 +29,7 @@ export const CellProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const fetchCells = async () => {
     try {
-      const data = await api.get('/cells');
+      const data = await api.get(`/cells?t=${Date.now()}`);
       setCells(data.map(mapDbToCell));
     } catch (error) {
       console.error('Error fetching cells:', error);
@@ -43,9 +43,10 @@ export const CellProvider: React.FC<{ children: React.ReactNode }> = ({ children
     name: data.name,
     leaderId: data.leader_id || '',
     districtId: data.district_id || '',
-    memberCount: data.profiles?.[0]?.count || 0,
+    memberCount: data.member_count || 0,
     imageUrl: data.image_url,
-    meetingDay: data.meeting_day
+    meetingDay: data.meeting_day,
+    leaderName: data.leader_first_name ? `${data.leader_first_name} ${data.leader_last_name}`.trim() : 'Líder no asignado'
   });
 
   const addCell = async (cellData: Omit<Cell, 'id'>) => {

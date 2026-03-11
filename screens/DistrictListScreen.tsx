@@ -27,8 +27,8 @@ const DistrictListScreen: React.FC = () => {
       if (d.id !== user.districtId) return false;
     }
 
-    const supervisor = users.find(u => u.id === d.supervisorId);
-    const supervisorName = supervisor ? `${supervisor.firstName} ${supervisor.lastName}` : 'Sin supervisor';
+    // Old lookup removed. Use direct property from API join
+    const supervisorName = d.supervisorName || 'Sin supervisor';
 
     const matchesSearch = d.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
       supervisorName.toLowerCase().includes(searchTerm.toLowerCase());
@@ -148,7 +148,7 @@ const DistrictListScreen: React.FC = () => {
               <div className="space-y-3 pt-4 border-t border-border-dark/50">
                 <div className="flex justify-between items-center">
                   <span className="text-text-secondary text-sm">Supervisor</span>
-                  <span className="text-white text-sm font-medium">{getSupervisorName(d.supervisorId)}</span>
+                  <span className="text-white text-sm font-medium">{d.supervisorName}</span>
                 </div>
                 <div className="flex justify-between items-center">
                   <span className="text-text-secondary text-sm">Células Totales</span>

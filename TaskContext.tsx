@@ -38,99 +38,10 @@ export const TaskProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const checkDailyBirthdayTasks = async () => {
     try {
-      const sessionStr = localStorage.getItem('session');
-      if (!sessionStr) return;
-      const { user } = JSON.parse(sessionStr);
-
-      const today = new Date();
-      const mm = String(today.getMonth() + 1).padStart(2, '0');
-      const dd = String(today.getDate()).padStart(2, '0');
-      const todayStr = `${today.getFullYear()}-${mm}-${dd}`;
-
-      // 1. Get all active users
-      const users = await api.get('/profiles');
-      // Filter in memory since API is simple
-      const activeUsersWithBirthday = users.filter((u: any) =>
-        (u.active === 1 || u.active === true) && u.birth_date
-      );
-
-      // 2. Filter for users having birthday today
-      const todayBirthdays = activeUsersWithBirthday.filter((user: any) => {
-        const [, month, day] = user.birth_date.split('-');
-        return month === mm && day === dd;
-      });
-
-      if (todayBirthdays.length === 0) return;
-
-      // 3. Get generic roles/entities needed for assignment
-      const cellData = await api.get('/cells');
-      const districtData = await api.get('/districts');
-
-      const pastorData = users.filter((p: any) =>
-        p.role === 'Pastor' || p.role === 'Pastor Asociado'
-      );
-
-      const cellsMap = new Map(cellData?.map((c: any) => [c.id, c.leader_id]));
-      const districtsMap = new Map(districtData?.map((d: any) => [d.id, d.supervisor_id]));
-      const pastorIds = pastorData?.map((p: any) => p.id) || [];
-
-      // 4. Create tasks for each birthday person
-      for (const birthdayPerson of todayBirthdays) {
-        const assignees = new Set<string>();
-
-        // Add Cell Leader
-        if (birthdayPerson.cell_id && cellsMap.has(birthdayPerson.cell_id)) {
-          const leaderId = cellsMap.get(birthdayPerson.cell_id);
-          if (leaderId) assignees.add(leaderId);
-        }
-
-        // Add District Supervisor
-        if (birthdayPerson.district_id && districtsMap.has(birthdayPerson.district_id)) {
-          const supervisorId = districtsMap.get(birthdayPerson.district_id);
-          if (supervisorId) assignees.add(supervisorId);
-        }
-
-        // Add Pastors
-        pastorIds.forEach((id: string) => assignees.add(id));
-
-        // Remove self from assignees if the birthday person holds one of these roles
-        assignees.delete(birthdayPerson.id);
-
-        const title = `Llamar a ${birthdayPerson.first_name} ${birthdayPerson.last_name} por su cumpleaños`;
-        const description = `Hoy es el cumpleaños de ${birthdayPerson.first_name} ${birthdayPerson.last_name}. ¡Llama para felicitarle! Teléfono: ${birthdayPerson.phone || 'No registrado'}`;
-
-        for (const assigneeId of assignees) {
-          // We'll skip duplicate check for simplicity in this migration or assume API handles it?
-          // Actually, let's just create it. Real backend would handle unique constraints.
-          // Or we filter existing tasks in memory:
-          const exists = tasks.some(t =>
-            t.category === 'automation' &&
-            t.relatedMemberId === birthdayPerson.id &&
-            t.assignedToId === assigneeId &&
-            t.dueDate === todayStr
-          );
-
-          if (!exists) {
-            await api.post('/tasks', {
-              title,
-              description,
-              status: 'pending',
-              priority: 'high',
-              category: 'automation',
-              due_date: todayStr,
-              assigned_to_id: assigneeId,
-              created_by_user_id: user.id,
-              related_member_id: birthdayPerson.id
-            });
-          }
-        }
-      }
-
-      // Refresh tasks if we added any
-      if (todayBirthdays.length > 0) {
-        fetchTasks();
-      }
-
+      // Delegate to server for idempotent run
+      await api.post('/tasks/automations/run', {});
+      // Fetch tasks to ensure we have the latest ones
+      await fetchTasks();
     } catch (error) {
       console.error('Error running birthday automation:', error);
     }

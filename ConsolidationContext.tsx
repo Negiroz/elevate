@@ -71,9 +71,8 @@ export const ConsolidationProvider: React.FC<{ children: React.ReactNode }> = ({
   };
 
   const fetchTasks = async () => {
-    // REFACTOR: Fetch from 'profiles' where stage is not null
-    const profiles = await api.get('/profiles?include_stats=true');
-    const consolidationProfiles = profiles.filter((p: any) => p.consolidation_stage_id && (p.active === 1 || p.active === true));
+    // OPTIMIZATION: Fetch ONLY consolidation profiles from server
+    const consolidationProfiles = await api.get('/profiles?include_stats=true&consolidation_only=true');
 
     // Sort logic handled in backend sql usually, but here array:
     consolidationProfiles.sort((a: any, b: any) => {

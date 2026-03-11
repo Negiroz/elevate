@@ -200,6 +200,9 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (updates.consolidationStageId !== undefined) dbUpdates.consolidation_stage_id = updates.consolidationStageId;
       if (updates.conversionOrigin !== undefined) dbUpdates.conversion_origin = updates.conversionOrigin;
       if (updates.conversionEventId !== undefined) dbUpdates.conversion_event_id = updates.conversionEventId;
+      if (updates.email !== undefined) {
+        dbUpdates.email = updates.email && updates.email.trim() !== '' ? updates.email : null;
+      }
 
       await api.patch(`/profiles/${id}`, dbUpdates);
 

@@ -41,69 +41,71 @@ const WrappedMemberListScreen = () => (
 const App: React.FC = () => {
   return (
     <NotificationProvider>
-      <UserProvider>
-        <CellProvider>
-          <DistrictProvider>
-            <TaskProvider>
-              <ConsolidationProvider>
-                <EventProvider>
-                  <AnnouncementProvider>
-                    <Router>
-                      <Routes>
-                        <Route path="/" element={<LoginScreen />} />
-                        <Route path="/dashboard" element={<DashboardScreen />} />
+      <ErrorBoundary>
+        <UserProvider>
+          <CellProvider>
+            <DistrictProvider>
+              <TaskProvider>
+                <ConsolidationProvider>
+                  <EventProvider>
+                    <AnnouncementProvider>
+                      <Router>
+                        <Routes>
+                          <Route path="/" element={<LoginScreen />} />
+                          <Route path="/dashboard" element={<DashboardScreen />} />
 
-                        {/* Events */}
-                        <Route path="/events" element={<EventsScreen />} />
+                          {/* Events */}
+                          <Route path="/events" element={<EventsScreen />} />
 
-                        {/* Reports */}
-                        <Route path="/reports" element={<ReportsScreen />} />
-                        <Route path="/offerings" element={<OfferingReportScreen />} />
+                          {/* Reports */}
+                          <Route path="/reports" element={<ReportsScreen />} />
+                          <Route path="/offerings" element={<OfferingReportScreen />} />
 
-                        {/* Users */}
-                        <Route path="/users" element={<UserListScreen />} />
-                        <Route path="/users/create" element={<UserFormScreen mode="create" />} />
-                        <Route path="/users/edit/:id" element={<UserFormScreen mode="edit" />} />
+                          {/* Users */}
+                          <Route path="/users" element={<UserListScreen />} />
+                          <Route path="/users/create" element={<UserFormScreen mode="create" />} />
+                          <Route path="/users/edit/:id" element={<UserFormScreen mode="edit" />} />
 
-                        {/* Members */}
-                        <Route path="/members" element={<WrappedMemberListScreen />} />
-                        <Route path="/members/create" element={<MemberFormScreen mode="create" />} />
-                        <Route path="/members/edit/:id" element={<MemberFormScreen mode="edit" />} />
+                          {/* Members */}
+                          <Route path="/members" element={<WrappedMemberListScreen />} />
+                          <Route path="/members/create" element={<MemberFormScreen mode="create" />} />
+                          <Route path="/members/edit/:id" element={<MemberFormScreen mode="edit" />} />
 
-                        {/* Districts */}
-                        <Route path="/districts" element={<DistrictListScreen />} />
-                        <Route path="/districts/create" element={<DistrictFormScreen mode="create" />} />
-                        <Route path="/districts/edit/:id" element={<DistrictFormScreen mode="edit" />} />
+                          {/* Districts */}
+                          <Route path="/districts" element={<DistrictListScreen />} />
+                          <Route path="/districts/create" element={<DistrictFormScreen mode="create" />} />
+                          <Route path="/districts/edit/:id" element={<DistrictFormScreen mode="edit" />} />
 
-                        {/* Cells */}
-                        <Route path="/cells" element={<CellListScreen />} />
-                        <Route path="/cells/create" element={<CellFormScreen mode="create" />} />
-                        <Route path="/cells/edit/:id" element={<CellFormScreen mode="edit" />} />
-                        <Route path="/cells/attendance/:id" element={<CellAttendanceScreen />} />
+                          {/* Cells */}
+                          <Route path="/cells" element={<CellListScreen />} />
+                          <Route path="/cells/create" element={<CellFormScreen mode="create" />} />
+                          <Route path="/cells/edit/:id" element={<CellFormScreen mode="edit" />} />
+                          <Route path="/cells/attendance/:id" element={<CellAttendanceScreen />} />
 
-                        {/* Consolidation */}
-                        <Route path="/consolidation" element={<ConsolidationScreen />} />
-                        <Route path="/consolidation/create" element={<ConsolidationFormScreen mode="create" />} />
-                        <Route path="/consolidation/edit/:id" element={<ConsolidationFormScreen mode="edit" />} />
+                          {/* Consolidation */}
+                          <Route path="/consolidation" element={<ConsolidationScreen />} />
+                          <Route path="/consolidation/create" element={<ConsolidationFormScreen mode="create" />} />
+                          <Route path="/consolidation/edit/:id" element={<ConsolidationFormScreen mode="edit" />} />
 
-                        {/* Other */}
-                        <Route path="/tasks" element={<TasksScreen />} />
-                        <Route path="/profile" element={<ProfileScreen />} />
+                          {/* Other */}
+                          <Route path="/tasks" element={<TasksScreen />} />
+                          <Route path="/profile" element={<ProfileScreen />} />
 
-                        {/* Announcements */}
-                        <Route path="/welcome" element={<WelcomeScreen />} />
-                        <Route path="/announcements" element={<AnnouncementsAdminScreen />} />
+                          {/* Announcements */}
+                          <Route path="/welcome" element={<WelcomeScreen />} />
+                          <Route path="/announcements" element={<AnnouncementsAdminScreen />} />
 
-                        <Route path="*" element={<Navigate to="/dashboard" replace />} />
-                      </Routes>
-                    </Router>
-                  </AnnouncementProvider>
-                </EventProvider>
-              </ConsolidationProvider>
-            </TaskProvider>
-          </DistrictProvider>
-        </CellProvider>
-      </UserProvider>
+                          <Route path="*" element={<Navigate to="/dashboard" replace />} />
+                        </Routes>
+                      </Router>
+                    </AnnouncementProvider>
+                  </EventProvider>
+                </ConsolidationProvider>
+              </TaskProvider>
+            </DistrictProvider>
+          </CellProvider>
+        </UserProvider>
+      </ErrorBoundary>
     </NotificationProvider >
   );
 };

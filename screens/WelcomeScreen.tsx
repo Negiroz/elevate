@@ -19,15 +19,21 @@ const WelcomeScreen: React.FC = () => {
         }
     }, [activeAnnouncements.length]);
 
+    // Navigate to dashboard if no announcements, but only after loading is done
+    useEffect(() => {
+        if (!loading && activeAnnouncements.length === 0) {
+            navigate('/dashboard');
+        }
+    }, [loading, activeAnnouncements.length, navigate]);
+
     const handleContinue = () => {
         navigate('/dashboard');
     };
 
-    if (loading) return null;
+    if (loading) return null; // Or render a Loading Spinner here
 
-    // If no active announcements, skip directly to dashboard
+    // If no active announcements, we return null while useEffect handles navigation
     if (activeAnnouncements.length === 0) {
-        navigate('/dashboard');
         return null;
     }
 
@@ -37,12 +43,13 @@ const WelcomeScreen: React.FC = () => {
         <div className="fixed inset-0 bg-[#0B1118] z-50 flex items-center justify-center p-4">
             <div className="absolute inset-0 overflow-hidden">
                 <div className="absolute top-0 left-0 w-full h-full bg-gradient-to-b from-[#0B1118] via-transparent to-[#0B1118] z-10" />
-                {currentAnnouncement.image_url && (
+                {currentAnnouncement?.image_url && (
                     <img
                         key={currentAnnouncement.image_url}
                         src={currentAnnouncement.image_url}
                         className="w-full h-full object-cover opacity-20 blur-sm scale-105 animate-in fade-in duration-1000"
                         alt="Background"
+                        onError={(e) => e.currentTarget.style.display = 'none'}
                     />
                 )}
             </div>
@@ -54,11 +61,15 @@ const WelcomeScreen: React.FC = () => {
 
                     {/* Image Section */}
                     <div className="w-full md:w-1/2 h-64 md:h-auto relative overflow-hidden bg-black/50">
-                        {currentAnnouncement.image_url ? (
+                        {currentAnnouncement?.image_url ? (
                             <img
                                 src={currentAnnouncement.image_url}
                                 className="w-full h-full object-cover"
-                                alt={currentAnnouncement.title}
+                                alt={currentAnnouncement?.title || 'Anuncio'}
+                                onError={(e) => {
+                                    e.currentTarget.style.display = 'none';
+                                    e.currentTarget.parentElement?.classList.add('bg-gradient-to-br', 'from-primary/20', 'to-surface-dark', 'flex', 'items-center', 'justify-center');
+                                }}
                             />
                         ) : (
                             <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-primary/20 to-surface-dark">
@@ -86,17 +97,17 @@ const WelcomeScreen: React.FC = () => {
                                     Novedades
                                 </span>
                                 <span className="text-text-secondary text-xs font-medium">
-                                    {new Date(currentAnnouncement.created_at).toLocaleDateString()}
+                                    {currentAnnouncement?.created_at ? new Date(currentAnnouncement.created_at).toLocaleDateString() : ''}
                                 </span>
                             </div>
 
                             <h1 className="text-3xl md:text-4xl font-black text-white mb-6 leading-tight">
-                                {currentAnnouncement.title}
+                                {currentAnnouncement?.title || 'Sin Título'}
                             </h1>
 
                             <div className="prose prose-invert prose-sm text-text-secondary max-h-[200px] overflow-y-auto pr-2 custom-scrollbar">
                                 <p className="whitespace-pre-line text-lg leading-relaxed">
-                                    {currentAnnouncement.message}
+                                    {currentAnnouncement?.message || ''}
                                 </p>
                             </div>
                         </div>
